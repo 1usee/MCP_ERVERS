@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP 音频生成工具</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">本地 MCP 工作台</p>
+          <h1>音频生成与语音交互</h1>
+        </div>
+      </header>
+
+      <main class="panel">
+        <section class="settings card">
+          <h2>连接配置</h2>
+
+          <div class="field-row two-col">
+            <label class="field">
+              <span>模型名称</span>
+              <select id="modelSelect">
+                <option value="qwen-omni-turbo">qwen-omni-turbo</option>
+                <option value="qwen-omni-flash">qwen-omni-flash</option>
+                <option value="qwen-omni-audio">qwen-omni-audio</option>
+                <option value="custom">自定义模型</option>
+              </select>
+            </label>
+
+            <label class="field custom-model hidden" id="customModelWrap">
+              <span>自定义模型</span>
+              <input id="customModel" type="text" placeholder="例如：qwen-omni-turbo" />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>API Key</span>
+            <input id="apiKey" type="password" placeholder="请输入 DASHSCOPE_API_KEY" />
+          </label>
+        </section>
+
+        <section class="request card">
+          <h2>输入内容</h2>
+
+          <label class="field">
+            <span>上传音频文件</span>
+            <input id="audioFile" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" />
+          </label>
+
+          <label class="field">
+            <span>文本提示词</span>
+            <textarea id="prompt" rows="5" placeholder="例如：请根据这段音频内容进行回答，并用自然语音回复。">请根据这段音频内容回答，并用自然语音输出。</textarea>
+          </label>
+
+          <div class="actions">
+            <button id="submitBtn" class="primary">发送请求</button>
+            <button id="resetBtn" class="secondary" type="button">清空</button>
+          </div>
+
+          <div id="status" class="status" aria-live="polite"></div>
+        </section>
+
+        <section class="result card">
+          <h2>返回结果</h2>
+
+          <div class="result-block">
+            <label class="field">
+              <span>模型回复文字</span>
+              <textarea id="responseText" rows="6" readonly placeholder="返回的文字将显示在这里"></textarea>
+            </label>
+          </div>
+
+          <div class="audio-block">
+            <label class="field">
+              <span>生成音频</span>
+              <audio id="audioPlayer" controls></audio>
+            </label>
+            <a id="downloadLink" class="download hidden" href="#" download="output.wav">下载音频</a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
