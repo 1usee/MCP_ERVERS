@@ -34,6 +34,9 @@ body {
 }
 
 .topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   margin-bottom: 18px;
 }
 
@@ -55,10 +58,12 @@ h2 {
   font-size: 20px;
 }
 
-.panel {
+.panel,
+.settings-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(280px, 1fr));
   gap: 20px;
+  align-items: stretch;
 }
 
 .card {
@@ -69,14 +74,97 @@ h2 {
   padding: 22px;
 }
 
-.settings,
 .request,
 .result {
-  min-height: 240px;
+  min-height: 420px;
 }
 
-.result {
-  grid-column: 1 / -1;
+.settings-layout {
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr);
+}
+
+.subpage-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.subpage-header h2 {
+  margin: 0;
+}
+
+.back-button,
+.icon-button {
+  background: #edf1ff;
+  color: var(--text);
+}
+
+.icon-button {
+  min-height: 44px;
+}
+
+.helper-text {
+  margin: -10px 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.api-add-row {
+  display: flex;
+  gap: 10px;
+}
+
+.api-add-row input {
+  flex: 1;
+}
+
+.api-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.api-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8f9ff;
+}
+
+.api-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.api-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-choice input {
+  width: auto;
+}
+
+.delete-api {
+  padding: 7px 10px;
+  color: var(--danger);
+  background: #fff0f0;
+  font-size: 13px;
+}
+
+.empty-state {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .field-row {
@@ -184,19 +272,71 @@ button:disabled {
 
 .audio-block {
   margin-top: 18px;
+  min-height: 168px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #f8f9ff;
 }
 
-audio {
-  width: 100%;
-  margin-top: 8px;
+.result-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.result-label {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.audio-result-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.audio-file-info {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(150px, 1fr) minmax(100px, 0.7fr) auto;
+  align-items: end;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.audio-file-detail {
+  min-width: 0;
+}
+
+.detail-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audio-file-detail strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .download {
   display: inline-block;
-  margin-top: 12px;
+  padding: 11px 15px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
   text-decoration: none;
-  color: var(--accent);
   font-weight: 700;
+}
+
+.download:hover {
+  background: var(--accent-dark);
 }
 
 .hidden {
@@ -204,11 +344,28 @@ audio {
 }
 
 @media (max-width: 760px) {
-  .panel {
+  .panel,
+  .settings-layout {
     grid-template-columns: 1fr;
   }
 
   .two-col {
     grid-template-columns: 1fr;
+  }
+
+  .api-add-row {
+    flex-direction: column;
+  }
+
+  .audio-file-info {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .audio-file-detail:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .download {
+    text-align: center;
   }
 }

@@ -1,15 +1,32 @@
 const modelSelect = document.getElementById('modelSelect');
 const customModelWrap = document.getElementById('customModelWrap');
 const customModel = document.getElementById('customModel');
-const apiKeyInput = document.getElementById('apiKey');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const apiList = document.getElementById('apiList');
+const apiStatus = document.getElementById('apiStatus');
+const settingsBtn = document.getElementById('settingsBtn');
+const backBtn = document.getElementById('backBtn');
+const mainView = document.getElementById('mainView');
+const settingsView = document.getElementById('settingsView');
+const addApiBtn = document.getElementById('addApiBtn');
 const audioFileInput = document.getElementById('audioFile');
 const promptInput = document.getElementById('prompt');
 const submitBtn = document.getElementById('submitBtn');
 const resetBtn = document.getElementById('resetBtn');
 const statusBox = document.getElementById('status');
 const responseText = document.getElementById('responseText');
-const audioPlayer = document.getElementById('audioPlayer');
 const downloadLink = document.getElementById('downloadLink');
+const audioResultStatus = document.getElementById('audioResultStatus');
+const audioFileInfo = document.getElementById('audioFileInfo');
+const audioFileName = document.getElementById('audioFileName');
+const audioCreatedAt = document.getElementById('audioCreatedAt');
+const audioFileSize = document.getElementById('audioFileSize');
+const API_STORAGE_KEY = 'mcp-api-keys';
+const ACTIVE_API_STORAGE_KEY = 'mcp-active-api-key';
+
+let apiKeys = JSON.parse(localStorage.getItem(API_STORAGE_KEY) || '[]');
+let activeApiKey = localStorage.getItem(ACTIVE_API_STORAGE_KEY) || '';
+let audioObjectUrl = '';
 
 function setStatus(message, type = '') {
   statusBox.textContent = message;
@@ -21,6 +38,82 @@ function getSelectedModel() {
     return customModel.value.trim();
   }
   return modelSelect.value.trim();
+}
+
+function saveApiKeys() {
+  localStorage.setItem(API_STORAGE_KEY, JSON.stringify(apiKeys));
+  localStorage.setItem(ACTIVE_API_STORAGE_KEY, activeApiKey);
+}
+
+function maskApiKey(apiKey) {
+  if (apiKey.length <= 8) {
+    return `${apiKey.slice(0, 2)}••••${apiKey.slice(-2)}`;
+  }
+  return `${apiKey.slice(0, 4)}••••••${apiKey.slice(-4)}`;
+}
+
+function renderApiList() {
+  apiList.replaceChildren();
+
+  if (!apiKeys.length) {
+    apiList.innerHTML = '<p class="empty-state">还没有 API Key，请在上方添加。</p>';
+    return;
+  }
+
+  apiKeys.forEach((apiKey) => {
+    const row = document.createElement('div');
+    row.className = 'api-item';
+    row.innerHTML = `
+      <label class="api-choice">
+        <input type="radio" name="activeApiKey" value="${apiKey}" ${apiKey === activeApiKey ? 'checked' : ''}>
+        <span>${maskApiKey(apiKey)}</span>
+      </label>
+      <button class="delete-api" type="button" data-api-key="${apiKey}">删除</button>
+    `;
+    apiList.appendChild(row);
+  });
+}
+
+function showView(view) {
+  const isSettings = view === 'settings';
+  mainView.classList.toggle('hidden', isSettings);
+  settingsView.classList.toggle('hidden', !isSettings);
+  settingsBtn.classList.toggle('hidden', isSettings);
+  if (isSettings) {
+    apiKeyInput.focus();
+  }
+}
+
+function addApiKey() {
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    apiStatus.textContent = '请输入 API Key。';
+    apiStatus.className = 'status error';
+    return;
+  }
+  if (apiKeys.includes(apiKey)) {
+    apiStatus.textContent = '这个 API Key 已经添加。';
+    apiStatus.className = 'status error';
+    return;
+  }
+  apiKeys.push(apiKey);
+  activeApiKey = apiKey;
+  apiKeyInput.value = '';
+  saveApiKeys();
+  renderApiList();
+  apiStatus.textContent = 'API Key 添加成功。';
+  apiStatus.className = 'status success';
+}
+
+function removeApiKey(apiKey) {
+  apiKeys = apiKeys.filter((item) => item !== apiKey);
+  if (activeApiKey === apiKey) {
+    activeApiKey = apiKeys[0] || '';
+  }
+  saveApiKeys();
+  renderApiList();
+  apiStatus.textContent = 'API Key 已删除。';
+  apiStatus.className = 'status success';
 }
 
 function toggleCustomModel() {
@@ -53,6 +146,62 @@ function getAudioFormatFromName(fileName) {
   return extension;
 }
 
+function getAudioMimeType(audioFormat) {
+  const mimeTypes = {
+    mp3: 'audio/mpeg',
+    m4a: 'audio/mp4',
+    ogg: 'audio/ogg',
+    flac: 'audio/flac',
+    wav: 'audio/wav'
+  };
+  return mimeTypes[audioFormat.toLowerCase()] || `audio/${audioFormat}`;
+}
+
+function createAudioFileName(audioFormat, createdAt) {
+  const parts = [
+    createdAt.getFullYear(),
+    String(createdAt.getMonth() + 1).padStart(2, '0'),
+    String(createdAt.getDate()).padStart(2, '0'),
+    String(createdAt.getHours()).padStart(2, '0'),
+    String(createdAt.getMinutes()).padStart(2, '0'),
+    String(createdAt.getSeconds()).padStart(2, '0')
+  ];
+  return `output-${parts.slice(0, 3).join('')}-${parts.slice(3).join('')}.${audioFormat}`;
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function createAudioBlob(audioBase64, audioFormat) {
+  const normalizedBase64 = audioBase64.includes(',')
+    ? audioBase64.split(',', 2)[1]
+    : audioBase64;
+  const binary = atob(normalizedBase64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: getAudioMimeType(audioFormat) });
+}
+
+function clearAudioResult() {
+  if (audioObjectUrl) {
+    URL.revokeObjectURL(audioObjectUrl);
+    audioObjectUrl = '';
+  }
+  downloadLink.removeAttribute('href');
+  audioFileInfo.classList.add('hidden');
+  audioResultStatus.textContent = '等待生成';
+  audioFileName.textContent = '-';
+  audioCreatedAt.textContent = '-';
+  audioFileSize.textContent = '-';
+}
+
 async function callMcpService(payload) {
   const response = await fetch('/api/tts', {
     method: 'POST',
@@ -81,12 +230,12 @@ async function handleSubmit(event) {
   event.preventDefault();
 
   const file = audioFileInput.files[0];
-  const apiKey = apiKeyInput.value.trim();
+  const apiKey = activeApiKey;
   const model = getSelectedModel();
   const prompt = promptInput.value.trim();
 
   if (!apiKey) {
-    setStatus('请输入 API Key。', 'error');
+    setStatus('请先在右上角“API 设置”中添加 API Key。', 'error');
     return;
   }
 
@@ -120,17 +269,21 @@ async function handleSubmit(event) {
 
     responseText.value = result.text || '模型未返回文字内容。';
 
+    clearAudioResult();
     if (result.audio_base64 && result.audio_format) {
-      const audioSource = `data:audio/${result.audio_format};base64,${result.audio_base64}`;
-      audioPlayer.src = audioSource;
-      audioPlayer.load();
-
-      downloadLink.href = audioSource;
-      downloadLink.download = `output.${result.audio_format}`;
-      downloadLink.classList.remove('hidden');
+      const audioBlob = createAudioBlob(result.audio_base64, result.audio_format);
+      const createdAt = new Date();
+      const fileName = createAudioFileName(result.audio_format, createdAt);
+      audioObjectUrl = URL.createObjectURL(audioBlob);
+      downloadLink.href = audioObjectUrl;
+      downloadLink.download = fileName;
+      audioFileName.textContent = fileName;
+      audioCreatedAt.textContent = createdAt.toLocaleString('zh-CN');
+      audioFileSize.textContent = formatFileSize(audioBlob.size);
+      audioFileInfo.classList.remove('hidden');
+      audioResultStatus.textContent = '已生成';
     } else {
-      audioPlayer.removeAttribute('src');
-      downloadLink.classList.add('hidden');
+      audioResultStatus.textContent = '未返回音频文件';
     }
 
     setStatus('请求完成。', 'success');
@@ -144,13 +297,11 @@ async function handleSubmit(event) {
 
 function handleReset() {
   audioFileInput.value = '';
-  apiKeyInput.value = '';
   promptInput.value = '请根据这段音频内容回答，并用自然语音输出。';
   modelSelect.value = 'qwen-omni-turbo';
   customModel.value = '';
   responseText.value = '';
-  audioPlayer.removeAttribute('src');
-  downloadLink.classList.add('hidden');
+  clearAudioResult();
   setStatus('');
   toggleCustomModel();
 }
@@ -158,5 +309,27 @@ function handleReset() {
 modelSelect.addEventListener('change', toggleCustomModel);
 submitBtn.addEventListener('click', handleSubmit);
 resetBtn.addEventListener('click', handleReset);
+settingsBtn.addEventListener('click', () => showView('settings'));
+backBtn.addEventListener('click', () => showView('main'));
+addApiBtn.addEventListener('click', addApiKey);
+apiKeyInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    addApiKey();
+  }
+});
+apiList.addEventListener('change', (event) => {
+  if (event.target.name !== 'activeApiKey') return;
+  activeApiKey = event.target.value;
+  saveApiKeys();
+  apiStatus.textContent = '已切换当前 API Key。';
+  apiStatus.className = 'status success';
+});
+apiList.addEventListener('click', (event) => {
+  const deleteButton = event.target.closest('.delete-api');
+  if (deleteButton) {
+    removeApiKey(deleteButton.dataset.apiKey);
+  }
+});
 
 toggleCustomModel();
+renderApiList();
