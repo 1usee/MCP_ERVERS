@@ -253,7 +253,7 @@ async function handleSubmit(event) {
   const model = getSelectedModel();
   const prompt = promptInput.value.trim();
 
-  if (!apiKey) {
+  if (activeApiKeyId === null) {
     setStatus('请先在右上角“API 设置”中添加 API Key。', 'error');
     return;
   }
