@@ -73,7 +73,7 @@ function showView(view) {
 
 async function addApiKey() {
   const apiKey = apiKeyInput.value.trim();
-  if (activeApiKeyId === null) {
+  if (!apiKey) {
     apiStatus.textContent = '请输入 API Key。';
     apiStatus.className = 'status error';
     return;
