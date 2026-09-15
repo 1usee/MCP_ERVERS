@@ -24,7 +24,7 @@
 
               <label class="field">
                 <span>上传音频文件</span>
-                <input id="audioFile" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,audio/*" />
+                <input id="audioFile" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" />
               </label>
 
               <label class="field">
@@ -108,6 +108,13 @@
             <section class="card api-card">
               <h2>API Key</h2>
               <p class="helper-text">添加多个 Key，并选择当前请求使用的 Key。</p>
+              <label class="field">
+                <span>Base URL</span>
+                <input id="baseUrlInput" type="url" placeholder="https://dashscope-intl.aliyuncs.com/compatible-mode/v1" />
+              </label>
+              <div class="actions">
+                <button id="saveBaseUrlBtn" class="secondary" type="button">保存 Base URL</button>
+              </div>
               <div class="api-add-row">
                 <input id="apiKeyInput" type="password" placeholder="请输入 DASHSCOPE_API_KEY" />
                 <button id="addApiBtn" class="primary" type="button">添加</button>

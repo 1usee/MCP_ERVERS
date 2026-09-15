@@ -32,9 +32,16 @@ def _audio_mime_type(audio_format: str) -> str:
     return {"wav": "audio/wav", "mp3": "audio/mpeg"}[audio_format]
 
 
-def _call_qwen(audio_base64: str, audio_format: str, prompt: str) -> dict:
+def _call_qwen(
+    audio_base64: str,
+    audio_format: str,
+    prompt: str,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model_name: str | None = None,
+) -> dict:
     """调用 Qwen 兼容 API，将输入音频发送给模型并返回原始 JSON。"""
-    config = Qwencloudconfig()
+    config = Qwencloudconfig(api_key, base_url, model_name)
     api_key = config.get_api()
     if not api_key:
         raise RuntimeError("DASHSCOPE_API_KEY is not configured")
@@ -86,8 +93,8 @@ def _call_qwen(audio_base64: str, audio_format: str, prompt: str) -> dict:
         raise RuntimeError(f"Unable to reach Qwen API: {exc.reason}") from exc
 
 
-def _extract_response(response: dict) -> tuple[str, str, str]:
-    """从 Qwen 返回结果中提取文本、Base64 音频和音频格式。"""
+def _extract_response(response: dict) -> tuple[str, str | None, str]:
+    """从 Qwen 返回结果中提取文本、可选 Base64 音频和格式。"""
     # 兼容 OpenAI 风格响应，先定位第一条模型消息。
     try:
         message = response["choices"][0]["message"]
@@ -98,10 +105,8 @@ def _extract_response(response: dict) -> tuple[str, str, str]:
     content = message.get("content") or ""
     text = content if isinstance(content, str) else ""
     audio = message.get("audio") or {}
-    audio_base64 = audio.get("data", "")
+    audio_base64 = audio.get("data") or None
     audio_format = audio.get("format", "wav")
-    if not audio_base64:
-        raise RuntimeError("Qwen API response did not contain audio data")
     return text, audio_base64, audio_format
 
 
@@ -135,19 +140,20 @@ async def execute(
             _call_qwen, audio_base64, normalized_format, prompt
         )
         text, output_base64, output_format = _extract_response(response)
-        output_bytes = audio_checker.decode_base64(output_base64)
+        output_path = None
         output_format = output_format.lower().lstrip(".")
-        audio_checker.validate_audio_bytes(output_bytes, output_format)
-
-        output_path = UPLOAD_DIR / f"{task_id}_output.{output_format}"
-        output_path.write_bytes(output_bytes)
+        if output_base64:
+            output_bytes = audio_checker.decode_base64(output_base64)
+            audio_checker.validate_audio_bytes(output_bytes, output_format)
+            output_path = UPLOAD_DIR / f"{task_id}_output.{output_format}"
+            output_path.write_bytes(output_bytes)
         database.record_task(
             task_id,
             input_path,
             normalized_format,
             status="completed",
             output_path=output_path,
-            output_format=output_format,
+            output_format=output_format if output_base64 else None,
             text=text,
         )
         audit_event("audio_completed", task_id=task_id, output_format=output_format)
@@ -159,11 +165,11 @@ async def execute(
                 "type": "audio",
                 "data": output_base64,
                 "mimeType": _audio_mime_type(output_format),
-            },
-            "audio_base64": output_base64,
-            "audio_format": output_format,
+            } if output_base64 else None,
+            "audio_base64": output_base64 or "",
+            "audio_format": output_format if output_base64 else "",
             "input_path": str(input_path),
-            "output_path": str(output_path),
+            "output_path": str(output_path) if output_path else None,
         }
     except Exception as exc:
         logger.exception("audio task failed task_id=%s", task_id)

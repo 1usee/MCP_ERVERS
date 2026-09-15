@@ -2,21 +2,22 @@
 
 import os
 
+from BACK_End.runtime_config import load_config
+
 
 class Qwencloudconfig:
     """为 MCP 服务统一提供 API Key、请求地址和模型配置。"""
 
-    def __init__(self, api_key=None):
-        # 优先使用构造参数，其次读取系统环境变量，避免把密钥写入代码。
-        self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
-        # 地址允许通过环境变量覆盖，便于切换国际站或其他兼容服务。
-        self.base_url = os.getenv(
-            "DASHSCOPE_BASE_URL",
-            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        ).rstrip("/")
+    def __init__(self, api_key=None, base_url=None, model_name=None):
+        runtime = load_config()
+        # 显式参数用于单次请求，否则使用网页配置的当前 API Key。
+        self.api_key = api_key or runtime["active_api_key"]
+        self.base_url = (base_url or runtime["base_url"]).rstrip("/")
         # 区域和模型名称用于配置管理和请求构造。
         self.region = os.getenv("DASHSCOPE_REGION", "cn-beijing")
-        self._model_name = os.getenv("DASHSCOPE_AUDIO_MODEL", "qwen-omni-turbo")
+        self._model_name = model_name or os.getenv(
+            "DASHSCOPE_AUDIO_MODEL", "qwen-omni-turbo"
+        )
 
     def get_api(self):
         # 只由服务内部读取 API Key，不能通过配置摘要对外返回。

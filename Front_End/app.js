@@ -4,6 +4,8 @@ const customModel = document.getElementById('customModel');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const apiList = document.getElementById('apiList');
 const apiStatus = document.getElementById('apiStatus');
+const baseUrlInput = document.getElementById('baseUrlInput');
+const saveBaseUrlBtn = document.getElementById('saveBaseUrlBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const backBtn = document.getElementById('backBtn');
 const mainView = document.getElementById('mainView');
@@ -21,11 +23,8 @@ const audioFileInfo = document.getElementById('audioFileInfo');
 const audioFileName = document.getElementById('audioFileName');
 const audioCreatedAt = document.getElementById('audioCreatedAt');
 const audioFileSize = document.getElementById('audioFileSize');
-const API_STORAGE_KEY = 'mcp-api-keys';
-const ACTIVE_API_STORAGE_KEY = 'mcp-active-api-key';
-
-let apiKeys = JSON.parse(localStorage.getItem(API_STORAGE_KEY) || '[]');
-let activeApiKey = localStorage.getItem(ACTIVE_API_STORAGE_KEY) || '';
+let apiKeys = [];
+let activeApiKeyId = null;
 let audioObjectUrl = '';
 
 function setStatus(message, type = '') {
@@ -38,18 +37,6 @@ function getSelectedModel() {
     return customModel.value.trim();
   }
   return modelSelect.value.trim();
-}
-
-function saveApiKeys() {
-  localStorage.setItem(API_STORAGE_KEY, JSON.stringify(apiKeys));
-  localStorage.setItem(ACTIVE_API_STORAGE_KEY, activeApiKey);
-}
-
-function maskApiKey(apiKey) {
-  if (apiKey.length <= 8) {
-    return `${apiKey.slice(0, 2)}••••${apiKey.slice(-2)}`;
-  }
-  return `${apiKey.slice(0, 4)}••••••${apiKey.slice(-4)}`;
 }
 
 function renderApiList() {
@@ -65,10 +52,10 @@ function renderApiList() {
     row.className = 'api-item';
     row.innerHTML = `
       <label class="api-choice">
-        <input type="radio" name="activeApiKey" value="${apiKey}" ${apiKey === activeApiKey ? 'checked' : ''}>
-        <span>${maskApiKey(apiKey)}</span>
+        <input type="radio" name="activeApiKey" value="${apiKey.id}" ${apiKey.active ? 'checked' : ''}>
+        <span>${apiKey.masked}</span>
       </label>
-      <button class="delete-api" type="button" data-api-key="${apiKey}">删除</button>
+      <button class="delete-api" type="button" data-api-id="${apiKey.id}">删除</button>
     `;
     apiList.appendChild(row);
   });
@@ -84,36 +71,69 @@ function showView(view) {
   }
 }
 
-function addApiKey() {
+async function addApiKey() {
   const apiKey = apiKeyInput.value.trim();
-  if (!apiKey) {
+  if (activeApiKeyId === null) {
     apiStatus.textContent = '请输入 API Key。';
     apiStatus.className = 'status error';
     return;
   }
-  if (apiKeys.includes(apiKey)) {
-    apiStatus.textContent = '这个 API Key 已经添加。';
+  try {
+    await updateConfig('/api/config/api-keys', { method: 'POST', body: { api_key: apiKey } });
+    apiKeyInput.value = '';
+    apiStatus.textContent = 'API Key 添加成功。';
+    apiStatus.className = 'status success';
+  } catch (error) {
+    apiStatus.textContent = error.message;
     apiStatus.className = 'status error';
-    return;
   }
-  apiKeys.push(apiKey);
-  activeApiKey = apiKey;
-  apiKeyInput.value = '';
-  saveApiKeys();
-  renderApiList();
-  apiStatus.textContent = 'API Key 添加成功。';
-  apiStatus.className = 'status success';
 }
 
-function removeApiKey(apiKey) {
-  apiKeys = apiKeys.filter((item) => item !== apiKey);
-  if (activeApiKey === apiKey) {
-    activeApiKey = apiKeys[0] || '';
+async function removeApiKey(apiId) {
+  try {
+    await updateConfig(`/api/config/api-keys/${apiId}`, { method: 'DELETE' });
+    apiStatus.textContent = 'API Key 已删除。';
+    apiStatus.className = 'status success';
+  } catch (error) {
+    apiStatus.textContent = error.message;
+    apiStatus.className = 'status error';
   }
-  saveApiKeys();
-  renderApiList();
-  apiStatus.textContent = 'API Key 已删除。';
-  apiStatus.className = 'status success';
+}
+
+async function updateConfig(url, options = {}) {
+  const response = await fetch(url, {
+    method: options.method || 'GET',
+    headers: options.body ? { 'Content-Type': 'application/json' } : {},
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || '配置更新失败');
+  if (result.api_keys) {
+    apiKeys = result.api_keys;
+    const active = apiKeys.find((item) => item.active);
+    activeApiKeyId = active ? active.id : null;
+    renderApiList();
+  }
+  if (result.base_url) baseUrlInput.value = result.base_url;
+  return result;
+}
+
+async function loadConfig() {
+  await updateConfig('/api/config');
+}
+
+async function saveBaseUrl() {
+  try {
+    await updateConfig('/api/config', {
+      method: 'POST',
+      body: { base_url: baseUrlInput.value.trim() }
+    });
+    apiStatus.textContent = 'Base URL 保存成功。';
+    apiStatus.className = 'status success';
+  } catch (error) {
+    apiStatus.textContent = error.message;
+    apiStatus.className = 'status error';
+  }
 }
 
 function toggleCustomModel() {
@@ -230,7 +250,6 @@ async function handleSubmit(event) {
   event.preventDefault();
 
   const file = audioFileInput.files[0];
-  const apiKey = activeApiKey;
   const model = getSelectedModel();
   const prompt = promptInput.value.trim();
 
@@ -260,7 +279,6 @@ async function handleSubmit(event) {
   try {
     const audioBase64 = await toBase64(file);
     const result = await callMcpService({
-      apiKey,
       model,
       prompt,
       audioBase64,
@@ -319,17 +337,28 @@ apiKeyInput.addEventListener('keydown', (event) => {
 });
 apiList.addEventListener('change', (event) => {
   if (event.target.name !== 'activeApiKey') return;
-  activeApiKey = event.target.value;
-  saveApiKeys();
-  apiStatus.textContent = '已切换当前 API Key。';
-  apiStatus.className = 'status success';
+  activeApiKeyId = Number(event.target.value);
+  updateConfig('/api/config', {
+    method: 'POST',
+    body: { active_api_key_id: activeApiKeyId }
+  }).then(() => {
+    apiStatus.textContent = '已切换当前 API Key。';
+    apiStatus.className = 'status success';
+  }).catch((error) => {
+    apiStatus.textContent = error.message;
+    apiStatus.className = 'status error';
+  });
 });
 apiList.addEventListener('click', (event) => {
   const deleteButton = event.target.closest('.delete-api');
   if (deleteButton) {
-    removeApiKey(deleteButton.dataset.apiKey);
+    removeApiKey(deleteButton.dataset.apiId);
   }
 });
 
+saveBaseUrlBtn.addEventListener('click', saveBaseUrl);
 toggleCustomModel();
-renderApiList();
+loadConfig().catch((error) => {
+  apiStatus.textContent = error.message || '无法读取服务器配置。';
+  apiStatus.className = 'status error';
+});
