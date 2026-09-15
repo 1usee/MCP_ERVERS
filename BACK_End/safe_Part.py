@@ -46,12 +46,16 @@ class safe_Check:
             raise ValueError(f"audio data exceeds {self.max_size} bytes")
         return normalized_format
 
-    @staticmethod
-    def decode_base64(value):
+    def decode_base64(self, value):
         """严格解码 Base64，统一转换为可读的参数错误。"""
         # validate=True 会拒绝包含非法字符的 Base64，而不是静默忽略。
         if not isinstance(value, str) or not value:
             raise ValueError("audio_base64 must be a non-empty string")
+        # Base64 每 4 个字符最多表示 3 个字节；先限制编码长度，避免
+        # 在超大输入上分配解码缓冲后才发现超过大小限制。
+        max_encoded_size = 4 * ((self.max_size + 2) // 3)
+        if len(value) > max_encoded_size:
+            raise ValueError(f"audio data exceeds {self.max_size} bytes")
         try:
             return base64.b64decode(value, validate=True)
         except (binascii.Error, ValueError, TypeError) as exc:
@@ -63,10 +67,13 @@ class Error_Manager:
 
     def __init__(self):
         self.errors = []
+        self.max_errors = max(1, int(os.getenv("MCP_MAX_ERRORS", "100")))
 
     def add(self, error):
-        # 统一转换成字符串，便于写入日志或数据库。
-        self.errors.append(str(error))
+        # 限制条目数量和单条长度，避免异常路径积累无界错误文本。
+        self.errors.append(str(error)[:2000])
+        if len(self.errors) > self.max_errors:
+            del self.errors[:-self.max_errors]
 
     def clear(self):
         self.errors.clear()

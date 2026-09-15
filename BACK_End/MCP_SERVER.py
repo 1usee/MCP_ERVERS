@@ -4,6 +4,7 @@ import base64
 import asyncio
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 from urllib import error, request
@@ -21,10 +22,70 @@ mcp = FastMCP("TTS_mcp")
 # 音频文件保存目录，可通过环境变量 MCP_AUDIO_DIR 自定义。
 UPLOAD_DIR = Path(os.getenv("MCP_AUDIO_DIR", "audio_files"))
 DATABASE_PATH = Path(os.getenv("MCP_DATABASE", "audio_tasks.db"))
+MAX_PROMPT_CHARS = int(os.getenv("MCP_MAX_PROMPT_CHARS", "4000"))
+MAX_RESPONSE_BYTES = int(
+    os.getenv("MCP_MAX_RESPONSE_BYTES", str(50 * 1024 * 1024))
+)
+MAX_TEXT_CHARS = int(os.getenv("MCP_MAX_TEXT_CHARS", "20000"))
+MAX_ERROR_CHARS = int(os.getenv("MCP_MAX_ERROR_CHARS", "2000"))
+AUDIO_RETENTION_SECONDS = int(
+    os.getenv("MCP_AUDIO_RETENTION_SECONDS", str(24 * 60 * 60))
+)
+MAX_AUDIO_STORAGE_BYTES = int(
+    os.getenv("MCP_MAX_AUDIO_STORAGE_BYTES", str(1024 * 1024 * 1024))
+)
+MAX_CONCURRENT_TASKS = int(os.getenv("MCP_MAX_CONCURRENT_TASKS", "4"))
+task_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 # 这些对象在服务启动时初始化，供所有 MCP 工具复用。
 audio_checker = safe_Check()
 database = DataBase(str(DATABASE_PATH)).connect()
 database.initialize()
+
+
+def _read_limited(stream, maximum):
+    """Read an HTTP body without allowing an unbounded response buffer."""
+    chunks = []
+    total = 0
+    while True:
+        chunk = stream.read(min(1024 * 1024, maximum - total + 1))
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > maximum:
+            raise RuntimeError(f"Qwen API response exceeds {maximum} bytes")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _cleanup_audio_files():
+    """Remove expired files and oldest files above the storage budget."""
+    if not UPLOAD_DIR.is_dir():
+        return
+    now = time.time()
+    retained = []
+    for path in UPLOAD_DIR.iterdir():
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if AUDIO_RETENTION_SECONDS >= 0 and now - stat.st_mtime > AUDIO_RETENTION_SECONDS:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        else:
+            retained.append((path, stat.st_mtime, stat.st_size))
+    total = sum(size for _, _, size in retained)
+    for path, _, size in sorted(retained, key=lambda item: item[1]):
+        if total <= MAX_AUDIO_STORAGE_BYTES:
+            break
+        try:
+            path.unlink()
+            total -= size
+        except OSError:
+            pass
 
 
 def _audio_mime_type(audio_format: str) -> str:
@@ -85,9 +146,10 @@ def _call_qwen(
     # 使用标准库发送 POST 请求，避免阻塞 MCP 的异步事件循环。
     try:
         with request.urlopen(http_request, timeout=120) as response:
-            return json.loads(response.read().decode("utf-8"))
+            body = _read_limited(response, MAX_RESPONSE_BYTES)
+            return json.loads(body.decode("utf-8"))
     except error.HTTPError as exc:
-        details = exc.read().decode("utf-8", errors="replace")
+        details = _read_limited(exc, MAX_ERROR_CHARS).decode("utf-8", errors="replace")
         raise RuntimeError(f"Qwen API returned HTTP {exc.code}: {details}") from exc
     except error.URLError as exc:
         raise RuntimeError(f"Unable to reach Qwen API: {exc.reason}") from exc
@@ -119,6 +181,14 @@ async def execute(
     """接收 Base64 音频，调用 Qwen，并返回生成的音频和文字结果。"""
     # 一个任务 ID 同时用于数据库记录、输入文件和输出文件的关联。
     task_id = uuid.uuid4().hex
+    if not isinstance(prompt, str) or len(prompt) > MAX_PROMPT_CHARS:
+        raise ValueError(f"prompt exceeds {MAX_PROMPT_CHARS} characters")
+    async with task_semaphore:
+        return await _execute_task(task_id, audio_base64, audio_format, prompt)
+
+
+async def _execute_task(task_id, audio_base64, audio_format, prompt):
+    """Run one task after concurrency admission control."""
     input_path = None
     normalized_format = audio_format.lower().lstrip(".")
     try:
@@ -130,6 +200,7 @@ async def execute(
 
         # 文件存储模块当前由音频目录和唯一任务 ID 组成，避免文件名冲突。
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        _cleanup_audio_files()
         input_path = UPLOAD_DIR / f"{task_id}.{normalized_format}"
         input_path.write_bytes(audio_bytes)
         database.record_task(task_id, input_path, normalized_format)
@@ -140,6 +211,7 @@ async def execute(
             _call_qwen, audio_base64, normalized_format, prompt
         )
         text, output_base64, output_format = _extract_response(response)
+        text = text[:MAX_TEXT_CHARS]
         output_path = None
         output_format = output_format.lower().lstrip(".")
         if output_base64:
@@ -157,6 +229,7 @@ async def execute(
             text=text,
         )
         audit_event("audio_completed", task_id=task_id, output_format=output_format)
+        _cleanup_audio_files()
         # MCP 没有标准音频内容类型，额外提供 OpenHanako 约定的音频块。
         return {
             "task_id": task_id,
@@ -179,9 +252,9 @@ async def execute(
                 input_path,
                 normalized_format,
                 status="failed",
-                error=str(exc),
+                error=str(exc)[:MAX_ERROR_CHARS],
             )
-        audit_event("audio_failed", task_id=task_id, error=str(exc))
+        audit_event("audio_failed", task_id=task_id, error=str(exc)[:MAX_ERROR_CHARS])
         raise
 
 
