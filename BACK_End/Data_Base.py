@@ -1,6 +1,7 @@
 """MCP 音频任务的 SQLite 持久化。"""
 
 import sqlite3
+import threading
 from datetime import datetime, timezone
 
 
@@ -11,11 +12,12 @@ class DataBase:
         self.db_name = db_name
         self.connection = None
         self.cursor = None
+        self.lock = threading.RLock()
 
     def connect(self):
         """建立数据库连接并启用外键约束。"""
         # 当前数据库用于保存任务元数据，不保存音频二进制内容。
-        self.connection = sqlite3.connect(self.db_name)
+        self.connection = sqlite3.connect(self.db_name, check_same_thread=False)
         self.connection.execute("PRAGMA foreign_keys = ON")
         self.cursor = self.connection.cursor()
         return self
@@ -52,22 +54,24 @@ class DataBase:
         if not self.connection or not self.cursor:
             raise RuntimeError("Database connection is not established.")
         # 使用参数化 SQL，避免任务文本或路径被当作 SQL 代码执行。
-        if params is not None:
-            self.cursor.execute(query, params)
-        else:
-            self.cursor.execute(query)
-        self.connection.commit()
+        with self.lock:
+            if params is not None:
+                self.cursor.execute(query, params)
+            else:
+                self.cursor.execute(query)
+            self.connection.commit()
         return self.cursor
 
     def fetch_all(self, query, params=None):
         """查询全部结果。"""
         if not self.connection or not self.cursor:
             raise RuntimeError("Database connection is not established.")
-        if params is not None:
-            self.cursor.execute(query, params)
-        else:
-            self.cursor.execute(query)
-        return self.cursor.fetchall()
+        with self.lock:
+            if params is not None:
+                self.cursor.execute(query, params)
+            else:
+                self.cursor.execute(query)
+            return self.cursor.fetchall()
 
     def record_task(
         self,

@@ -9,7 +9,7 @@ from pathlib import Path
 class safe_Check:
     """校验音频文件，避免未知格式或过大文件进入模型服务。"""
 
-    ALLOWED_FORMATS = frozenset({"wav", "mp3", "m4a", "flac", "ogg"})
+    ALLOWED_FORMATS = frozenset({"wav", "mp3"})
 
     def __init__(self, data=None, max_size=None):
         # 默认限制 25 MB，可使用 MCP_MAX_AUDIO_BYTES 调整。

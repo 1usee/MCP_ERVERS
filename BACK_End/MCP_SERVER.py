@@ -27,6 +27,11 @@ database = DataBase(str(DATABASE_PATH)).connect()
 database.initialize()
 
 
+def _audio_mime_type(audio_format: str) -> str:
+    """返回 OpenHanako 音频块需要的 MIME 类型。"""
+    return {"wav": "audio/wav", "mp3": "audio/mpeg"}[audio_format]
+
+
 def _call_qwen(audio_base64: str, audio_format: str, prompt: str) -> dict:
     """调用 Qwen 兼容 API，将输入音频发送给模型并返回原始 JSON。"""
     config = Qwencloudconfig()
@@ -146,10 +151,15 @@ async def execute(
             text=text,
         )
         audit_event("audio_completed", task_id=task_id, output_format=output_format)
-        # 返回音频 Base64 方便 MCP 客户端直接播放，路径方便服务端留存。
+        # MCP 没有标准音频内容类型，额外提供 OpenHanako 约定的音频块。
         return {
             "task_id": task_id,
             "text": text,
+            "audio": {
+                "type": "audio",
+                "data": output_base64,
+                "mimeType": _audio_mime_type(output_format),
+            },
             "audio_base64": output_base64,
             "audio_format": output_format,
             "input_path": str(input_path),
