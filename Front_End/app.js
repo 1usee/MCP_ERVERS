@@ -11,6 +11,7 @@ const backBtn = document.getElementById('backBtn');
 const mainView = document.getElementById('mainView');
 const settingsView = document.getElementById('settingsView');
 const addApiBtn = document.getElementById('addApiBtn');
+const fetchModelsBtn = document.getElementById('fetchModelsBtn');
 const audioFileInput = document.getElementById('audioFile');
 const promptInput = document.getElementById('prompt');
 const submitBtn = document.getElementById('submitBtn');
@@ -23,6 +24,7 @@ const audioFileInfo = document.getElementById('audioFileInfo');
 const audioFileName = document.getElementById('audioFileName');
 const audioCreatedAt = document.getElementById('audioCreatedAt');
 const audioFileSize = document.getElementById('audioFileSize');
+const webToken = localStorage.getItem('mcpWebToken') || '';
 let apiKeys = [];
 let activeApiKeyId = null;
 let audioObjectUrl = '';
@@ -101,9 +103,11 @@ async function removeApiKey(apiId) {
 }
 
 async function updateConfig(url, options = {}) {
+  const headers = options.body ? { 'Content-Type': 'application/json' } : {};
+  if (webToken) headers['X-MCP-Token'] = webToken;
   const response = await fetch(url, {
     method: options.method || 'GET',
-    headers: options.body ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const result = await response.json();
@@ -120,6 +124,41 @@ async function updateConfig(url, options = {}) {
 
 async function loadConfig() {
   await updateConfig('/api/config');
+}
+
+function populateModels(models) {
+  const customOption = modelSelect.querySelector('option[value="custom"]');
+  modelSelect.replaceChildren(new Option('请先获取模型名称', '', true, true));
+  modelSelect.options[0].disabled = true;
+  models.forEach((model) => {
+    modelSelect.add(new Option(model, model));
+  });
+  modelSelect.add(customOption);
+  modelSelect.value = '';
+  toggleCustomModel();
+}
+
+async function fetchModels() {
+  fetchModelsBtn.disabled = true;
+  apiStatus.textContent = '正在获取模型名称…';
+  apiStatus.className = 'status';
+  try {
+    const headers = webToken ? { 'X-MCP-Token': webToken } : {};
+    const response = await fetch('/api/models', { headers });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || '获取模型名称失败');
+    if (!Array.isArray(result.models) || !result.models.length) {
+      throw new Error('模型接口未返回模型名称');
+    }
+    populateModels(result.models);
+    apiStatus.textContent = `已获取 ${result.models.length} 个模型。`;
+    apiStatus.className = 'status success';
+  } catch (error) {
+    apiStatus.textContent = error.message;
+    apiStatus.className = 'status error';
+  } finally {
+    fetchModelsBtn.disabled = false;
+  }
 }
 
 async function saveBaseUrl() {
@@ -223,11 +262,11 @@ function clearAudioResult() {
 }
 
 async function callMcpService(payload) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (webToken) headers['X-MCP-Token'] = webToken;
   const response = await fetch('/api/tts', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: JSON.stringify(payload)
   });
 
@@ -316,7 +355,7 @@ async function handleSubmit(event) {
 function handleReset() {
   audioFileInput.value = '';
   promptInput.value = '请根据这段音频内容回答，并用自然语音输出。';
-  modelSelect.value = 'qwen-omni-turbo';
+  modelSelect.value = '';
   customModel.value = '';
   responseText.value = '';
   clearAudioResult();
@@ -330,6 +369,7 @@ resetBtn.addEventListener('click', handleReset);
 settingsBtn.addEventListener('click', () => showView('settings'));
 backBtn.addEventListener('click', () => showView('main'));
 addApiBtn.addEventListener('click', addApiKey);
+fetchModelsBtn.addEventListener('click', fetchModels);
 apiKeyInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     addApiKey();

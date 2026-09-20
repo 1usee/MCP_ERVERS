@@ -4,6 +4,7 @@ import base64
 import asyncio
 import json
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -13,7 +14,7 @@ from fastmcp import FastMCP
 
 from BACK_End.api_setting import Qwencloudconfig
 from BACK_End.Data_Base import DataBase
-from BACK_End.dairy import audit_event, logger
+from BACK_End.diary import audit_event, logger
 from BACK_End.safe_Part import safe_Check
 
 
@@ -36,10 +37,20 @@ MAX_AUDIO_STORAGE_BYTES = int(
 )
 MAX_CONCURRENT_TASKS = int(os.getenv("MCP_MAX_CONCURRENT_TASKS", "4"))
 task_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
-# 这些对象在服务启动时初始化，供所有 MCP 工具复用。
 audio_checker = safe_Check()
-database = DataBase(str(DATABASE_PATH)).connect()
-database.initialize()
+database = None
+database_lock = threading.Lock()
+
+
+def _get_database():
+    """按需初始化数据库，避免仅导入模块就创建数据库文件。"""
+    global database
+    if database is None:
+        with database_lock:
+            if database is None:
+                database = DataBase(str(DATABASE_PATH)).connect()
+                database.initialize()
+    return database
 
 
 def _read_limited(stream, maximum):
@@ -86,6 +97,9 @@ def _cleanup_audio_files():
             total -= size
         except OSError:
             pass
+    if database is not None:
+        database.purge_older_than(AUDIO_RETENTION_SECONDS)
+        database.purge_missing_inputs()
 
 
 def _audio_mime_type(audio_format: str) -> str:
@@ -203,7 +217,7 @@ async def _execute_task(task_id, audio_base64, audio_format, prompt):
         _cleanup_audio_files()
         input_path = UPLOAD_DIR / f"{task_id}.{normalized_format}"
         input_path.write_bytes(audio_bytes)
-        database.record_task(task_id, input_path, normalized_format)
+        _get_database().record_task(task_id, input_path, normalized_format)
         audit_event("audio_received", task_id=task_id, format=normalized_format)
 
         # 网络请求是阻塞操作，放到线程中执行，避免阻塞 MCP 的异步服务。
@@ -219,7 +233,7 @@ async def _execute_task(task_id, audio_base64, audio_format, prompt):
             audio_checker.validate_audio_bytes(output_bytes, output_format)
             output_path = UPLOAD_DIR / f"{task_id}_output.{output_format}"
             output_path.write_bytes(output_bytes)
-        database.record_task(
+        _get_database().record_task(
             task_id,
             input_path,
             normalized_format,
@@ -247,7 +261,7 @@ async def _execute_task(task_id, audio_base64, audio_format, prompt):
     except Exception as exc:
         logger.exception("audio task failed task_id=%s", task_id)
         if input_path is not None:
-            database.record_task(
+            _get_database().record_task(
                 task_id,
                 input_path,
                 normalized_format,
@@ -262,7 +276,7 @@ async def _execute_task(task_id, audio_base64, audio_format, prompt):
 def get_task_status(task_id: str) -> dict:
     """查询音频任务状态，不返回音频正文。"""
     # 状态查询只返回元数据，不重复传输音频正文。
-    rows = database.fetch_all(
+    rows = _get_database().fetch_all(
         """
         SELECT task_id, input_path, output_path, input_format, output_format,
                status, text, error, created_at, finished_at

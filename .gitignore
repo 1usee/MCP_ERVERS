@@ -1,0 +1,14 @@
+mcp_config.json
+.env
+
+audio_files/
+audio_tasks.db
+logs/
+*.log
+
+.venv/
+__pycache__/
+*.py[cod]
+
+.vscode/
+.idea/

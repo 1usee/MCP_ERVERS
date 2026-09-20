@@ -31,6 +31,8 @@
 3. 启动 Web 服务和 MCP 服务；
 4. 默认在 `http://localhost:8000` 提供 Web 工作台。
 
+Web 服务默认只监听本机。如需局域网访问，请显式设置 `MCP_WEB_HOST=0.0.0.0`；同时建议设置 `MCP_WEB_TOKEN`，前端会从浏览器 `localStorage` 的 `mcpWebToken` 读取令牌并发送到 API。
+
 停止服务时，在当前 PowerShell 窗口按 `Ctrl+C`。
 
 如果 PowerShell 禁止执行脚本，可以仅对当前窗口放宽策略后重试：
@@ -79,11 +81,8 @@ sudo apt install python3-venv
    `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`
 4. 输入 API Key，点击 **添加**。
 5. 如果保存了多个 Key，通过单选框选择当前使用的 Key。
-6. 返回工作台，选择模型。内置模型包括：
-   - `qwen-omni-turbo`
-   - `qwen-omni-flash`
-   - `qwen-omni-audio`
-   - 自定义模型名称
+6. 点击 **获取模型名称**，从当前 Base URL 获取可用模型列表。
+7. 返回工作台，选择已获取的模型；也可以选择并填写自定义模型名称。
 
 配置会保存到项目根目录的 `mcp_config.json`。该文件包含 API Key 本身，不应提交到代码仓库或暴露给其他用户。
 

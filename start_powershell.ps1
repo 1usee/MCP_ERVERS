@@ -44,7 +44,11 @@ $McpProcess = Start-Process -FilePath $VenvPython `
 
 try {
     Write-Host "Web UI: http://localhost:$WebPort"
-    Write-Host "Web UI LAN: http://<server-ip>:$WebPort"
+    if ($env:MCP_WEB_HOST -eq "0.0.0.0") {
+        Write-Host "Web UI LAN: http://<server-ip>:$WebPort (MCP_WEB_TOKEN is recommended)"
+    } else {
+        Write-Host "Web UI is local-only by default; set MCP_WEB_HOST=0.0.0.0 for LAN access."
+    }
     Write-Host "MCP service started. Press Ctrl+C to stop the project."
     Wait-Process -Id $WebProcess.Id
 } finally {

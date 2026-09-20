@@ -91,9 +91,7 @@
                 <label class="field">
                   <span>模型名称</span>
                   <select id="modelSelect">
-                    <option value="qwen-omni-turbo">qwen-omni-turbo</option>
-                    <option value="qwen-omni-flash">qwen-omni-flash</option>
-                    <option value="qwen-omni-audio">qwen-omni-audio</option>
+                    <option value="" selected disabled>请先获取模型名称</option>
                     <option value="custom">自定义模型</option>
                   </select>
                 </label>
@@ -102,6 +100,9 @@
                   <span>自定义模型</span>
                   <input id="customModel" type="text" placeholder="例如：qwen-omni-turbo" />
                 </label>
+              </div>
+              <div class="actions">
+                <button id="fetchModelsBtn" class="secondary" type="button">获取模型名称</button>
               </div>
             </section>
 

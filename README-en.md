@@ -31,6 +31,8 @@ The script will:
 3. Start the Web service and MCP service.
 4. Serve the Web Workbench at `http://localhost:8000` by default.
 
+The Web service binds to localhost by default. For LAN access, explicitly set `MCP_WEB_HOST=0.0.0.0`; also set `MCP_WEB_TOKEN` when exposing it beyond the local machine. The browser client reads the token from `localStorage.mcpWebToken`.
+
 Press `Ctrl+C` in the current PowerShell window to stop the services.
 
 If PowerShell prevents script execution, temporarily relax the execution policy for the current window and try again:

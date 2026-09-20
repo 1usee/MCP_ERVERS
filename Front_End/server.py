@@ -1,21 +1,28 @@
 import json
 import os
 import sys
+import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib import error, request
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from BACK_End.MCP_SERVER import _call_qwen, _extract_response
-from BACK_End.api_setting import Qwencloudconfig
+from BACK_End.MCP_SERVER import MAX_ERROR_CHARS, _call_qwen, _extract_response
+from BACK_End.Data_Base import DataBase
 from BACK_End.runtime_config import load_config, public_config, save_config
 from BACK_End.safe_Part import safe_Check
 
 ROOT = Path(__file__).resolve().parent
-HOST = os.getenv("MCP_WEB_HOST", "0.0.0.0")
+UPLOAD_DIR = Path(os.getenv("MCP_AUDIO_DIR", str(PROJECT_ROOT / "audio_files")))
+DATABASE_PATH = Path(os.getenv("MCP_DATABASE", str(PROJECT_ROOT / "audio_tasks.db")))
+MAX_BODY_BYTES = int(os.getenv("MCP_MAX_BODY_BYTES", str(40 * 1024 * 1024)))
+WEB_TOKEN = os.getenv("MCP_WEB_TOKEN", "")
+HOST = os.getenv("MCP_WEB_HOST", "127.0.0.1")
 PORT = int(os.getenv("MCP_WEB_PORT", "8000"))
+database = None
 
 
 class WebHandler(SimpleHTTPRequestHandler):
@@ -30,18 +37,87 @@ class WebHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _authorized(self):
+        if not WEB_TOKEN:
+            return True
+        if self.headers.get("X-MCP-Token") == WEB_TOKEN:
+            return True
+        self._send_json({"error": "未授权"}, 401)
+        return False
+
+    def _read_json_body(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Content-Length 头部无效") from exc
+        if length <= 0:
+            raise ValueError("请求体为空")
+        if length > MAX_BODY_BYTES:
+            raise ValueError(f"请求体超过上限 {MAX_BODY_BYTES} 字节")
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"请求体格式错误: {exc}") from exc
+
+    def _get_database(self):
+        global database
+        if database is None:
+            database = DataBase(str(DATABASE_PATH)).connect()
+            database.initialize()
+        return database
+
+    def _record_task(self, task_id, input_path, audio_format, **kwargs):
+        self._get_database().record_task(
+            task_id, input_path, audio_format, **kwargs
+        )
+
     def do_GET(self):
+        if self.path.startswith("/api/") and not self._authorized():
+            return
         if self.path == "/api/config":
             current = load_config()
             self._send_json({
-                "models": ["qwen-omni-turbo", "qwen-omni-flash", "qwen-omni-audio"],
-                "defaultModel": "qwen-omni-turbo",
                 **public_config(current),
             })
             return
+        if self.path == "/api/models":
+            self._get_models()
+            return
         return super().do_GET()
 
+    def _get_models(self):
+        try:
+            config = load_config()
+            if not config["active_api_key"]:
+                raise ValueError("请先添加 API Key")
+            http_request = request.Request(
+                f'{config["base_url"]}/models',
+                headers={"Authorization": f'Bearer {config["active_api_key"]}'},
+                method="GET",
+            )
+            with request.urlopen(http_request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise RuntimeError("模型接口返回格式无效")
+            models = [
+                str(item["id"]).strip()
+                for item in payload.get("data", [])
+                if isinstance(item, dict) and str(item.get("id", "")).strip()
+            ]
+            if not models:
+                raise RuntimeError("模型接口未返回模型名称")
+            self._send_json({"models": models})
+        except error.HTTPError as exc:
+            details = exc.read(MAX_ERROR_CHARS).decode("utf-8", errors="replace")
+            self._send_json({"error": f"获取模型名称失败（HTTP {exc.code}）：{details}"}, 502)
+        except error.URLError as exc:
+            self._send_json({"error": f"无法连接模型服务：{exc.reason}"}, 502)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
+            self._send_json({"error": str(exc)}, 400)
+
     def do_POST(self):
+        if self.path.startswith("/api/") and not self._authorized():
+            return
         if self.path == "/api/config":
             self._update_config()
             return
@@ -49,10 +125,10 @@ class WebHandler(SimpleHTTPRequestHandler):
             self._add_api_key()
             return
         if self.path == "/api/tts":
+            task_id = uuid.uuid4().hex
+            input_path = None
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length)
-                payload = json.loads(raw.decode("utf-8"))
+                payload = self._read_json_body()
             except Exception as exc:
                 self._send_json({"error": f"请求体格式错误: {exc}"}, 400)
                 return
@@ -77,6 +153,10 @@ class WebHandler(SimpleHTTPRequestHandler):
                 checker = safe_Check()
                 audio_bytes = checker.decode_base64(audio_base64)
                 audio_format = checker.validate_audio_bytes(audio_bytes, audio_format)
+                UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+                input_path = UPLOAD_DIR / f"{task_id}.{audio_format}"
+                input_path.write_bytes(audio_bytes)
+                self._record_task(task_id, input_path, audio_format)
 
                 if not config["active_api_key"]:
                     raise ValueError("请先在 API 设置中添加并选择 API Key")
@@ -90,21 +170,46 @@ class WebHandler(SimpleHTTPRequestHandler):
                     model_name=model,
                 )
                 text, output_base64, output_format = _extract_response(response)
+                output_path = None
+                output_format = output_format.lower().lstrip(".")
+                if output_base64:
+                    output_bytes = checker.decode_base64(output_base64)
+                    output_format = checker.validate_audio_bytes(output_bytes, output_format)
+                    output_path = UPLOAD_DIR / f"{task_id}_output.{output_format}"
+                    output_path.write_bytes(output_bytes)
+                self._record_task(
+                    task_id,
+                    input_path,
+                    audio_format,
+                    status="completed",
+                    output_path=output_path,
+                    output_format=output_format if output_base64 else None,
+                    text=text,
+                )
                 self._send_json({
+                    "task_id": task_id,
                     "text": text,
                     "audio_base64": output_base64,
-                    "audio_format": output_format.lower().lstrip("."),
+                    "audio_format": output_format if output_base64 else "",
+                    "output_path": str(output_path) if output_path else None,
                 })
                 return
             except Exception as exc:
+                if input_path is not None:
+                    self._record_task(
+                        task_id,
+                        input_path,
+                        locals().get("audio_format", "wav"),
+                        status="failed",
+                        error=str(exc)[:MAX_ERROR_CHARS],
+                    )
                 self._send_json({"error": str(exc)}, 500)
                 return
 
         self._send_json({"error": "Not Found"}, 404)
 
     def _read_payload(self):
-        length = int(self.headers.get("Content-Length", "0"))
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+        return self._read_json_body()
 
     def _update_config(self):
         try:
@@ -139,6 +244,8 @@ class WebHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": str(exc)}, 400)
 
     def do_DELETE(self):
+        if self.path.startswith("/api/") and not self._authorized():
+            return
         if self.path.startswith("/api/config/api-keys/"):
             try:
                 key_id = int(self.path.rsplit("/", 1)[-1])

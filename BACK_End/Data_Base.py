@@ -3,6 +3,7 @@
 import sqlite3
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 class DataBase:
@@ -72,6 +73,36 @@ class DataBase:
             else:
                 self.cursor.execute(query)
             return self.cursor.fetchall()
+
+    def purge_older_than(self, seconds):
+        """删除超过保留期的任务记录，并返回删除数量。"""
+        if seconds < 0:
+            return 0
+        cutoff = (datetime.now(timezone.utc).timestamp() - seconds)
+        cutoff_text = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
+        with self.lock:
+            self.cursor.execute(
+                "DELETE FROM audio_tasks WHERE created_at < ?",
+                (cutoff_text,),
+            )
+            deleted = self.cursor.rowcount
+            self.connection.commit()
+        return deleted
+
+    def purge_missing_inputs(self):
+        """删除输入文件已被清理的任务记录，避免保留失效路径。"""
+        with self.lock:
+            self.cursor.execute("SELECT task_id, input_path FROM audio_tasks")
+            task_ids = [
+                task_id for task_id, input_path in self.cursor.fetchall()
+                if not Path(input_path).is_file()
+            ]
+            self.cursor.executemany(
+                "DELETE FROM audio_tasks WHERE task_id = ?",
+                [(task_id,) for task_id in task_ids],
+            )
+            self.connection.commit()
+        return len(task_ids)
 
     def record_task(
         self,

@@ -47,7 +47,11 @@ WEB_PID=$!
 MCP_PID=$!
 
 echo "Web UI: http://localhost:$WEB_PORT"
-echo "Web UI LAN: http://<server-ip>:$WEB_PORT"
+if [[ "${MCP_WEB_HOST:-127.0.0.1}" == "0.0.0.0" ]]; then
+    echo "Web UI LAN: http://<server-ip>:$WEB_PORT (MCP_WEB_TOKEN is recommended)"
+else
+    echo "Web UI is local-only by default; set MCP_WEB_HOST=0.0.0.0 for LAN access."
+fi
 echo "MCP service started. Press Ctrl+C to stop the project."
 
 wait -n "$WEB_PID" "$MCP_PID"
