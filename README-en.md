@@ -71,7 +71,7 @@ To start the two services separately:
 .venv/bin/python BACK_End/MCP_SERVER.py
 ```
 
-When starting manually, run the commands from the project root and set `PYTHONPATH` to the project root. The MCP service normally communicates with MCP clients over **stdio** and does not provide a separate browser page.
+When starting manually, run the commands from the project root and set `PYTHONPATH` to the project root. The MCP service communicates with an MCP client on the same machine over **stdio by default** — it does not listen on a port and does not serve a browser page. To let clients on other machines on the LAN call it, switch to HTTP transport (see "MCP Client Configuration Examples" below).
 
 ## 3. Initial Configuration
 
@@ -137,6 +137,8 @@ Queries the Base URL, region, model name, and whether an API Key is configured. 
 
 ### MCP Client Configuration Examples
 
+#### Option 1: stdio (default; MCP service and client on the same machine)
+
 Windows client configuration example:
 
 ```json
@@ -163,6 +165,57 @@ Linux/macOS client configuration example:
 }
 ```
 
+Here the client spawns the MCP process itself and the two communicate over standard input/output.
+
+#### Option 2: HTTP (cross-machine; MCP service hosted on a LAN server)
+
+If the MCP service runs on a different server on your LAN, start it there with HTTP transport first:
+
+```bash
+# Linux/macOS — run on the server
+MCP_TRANSPORT=http \
+MCP_SERVER_HOST=0.0.0.0 \
+MCP_SERVER_PORT=9000 \
+MCP_AUDIO_DIR=/var/lib/mcp-audio \
+.venv/bin/python BACK_End/MCP_SERVER.py
+```
+
+```powershell
+# Windows — run on the server
+$env:MCP_TRANSPORT = "http"
+$env:MCP_SERVER_HOST = "0.0.0.0"
+$env:MCP_SERVER_PORT = "9000"
+$env:MCP_AUDIO_DIR = "D:\MCPAudio"
+.venv\Scripts\python.exe BACK_End\MCP_SERVER.py
+```
+
+Then point the client configuration at a URL instead:
+
+```json
+{
+  "mcpServers": {
+    "tts-mcp": {
+      "url": "http://192.168.1.50:9000/mcp"
+    }
+  }
+}
+```
+
+Notes:
+
+- The endpoint path is always `/mcp` — do not omit it.
+- The default port is `9000`; **do not reuse `8000`**, which belongs to the Web Workbench (a separate service).
+- For cross-machine deployment, set `MCP_AUDIO_DIR` to an absolute path so audio files land where you expect.
+- Whether other machines on the LAN can reach it also depends on the server firewall and whether the port is allowed.
+
+> **⚠️ Security warning: the HTTP transport performs no authentication whatsoever.** Any machine that can reach the port can call every tool in this service and consume your configured API Key quota. Therefore:
+>
+> - Do not expose a `MCP_SERVER_HOST=0.0.0.0` port to the public Internet;
+> - Even on a LAN, restrict source IPs with a firewall or a reverse proxy with IP allowlisting/access control;
+> - Use a dedicated, low-privilege API Key with a spending limit for this service.
+>
+> If only you need access, keeping the default `127.0.0.1` and reaching it through an SSH port forward is the safer choice.
+
 Before starting the MCP client, configure an API Key. You can add one in the Web settings page or provide an initial key through an environment variable:
 
 ```powershell
@@ -185,7 +238,7 @@ All configuration options are set through environment variables. Defaults are us
 | `DASHSCOPE_AUDIO_VOICE` | `Cherry` | Voice used for generated speech |
 | `DASHSCOPE_REGION` | `cn-beijing` | Service region identifier |
 | `MCP_CONFIG_FILE` | `mcp_config.json` in the project root | Shared configuration file used by Web and MCP services |
-| `MCP_WEB_HOST` | `0.0.0.0` | Web listening address |
+| `MCP_WEB_HOST` | `127.0.0.1` | Web listening address (local-only by default; set to `0.0.0.0` explicitly for LAN access) |
 | `MCP_WEB_PORT` | `8000` | Web listening port |
 | `MCP_AUDIO_DIR` | `audio_files` | Directory for input and output audio |
 | `MCP_DATABASE` | `audio_tasks.db` | SQLite task database path |
@@ -195,6 +248,9 @@ All configuration options are set through environment variables. Defaults are us
 | `MCP_MAX_RESPONSE_BYTES` | `50 MB` | Maximum size of a normal Qwen response |
 | `MCP_MAX_ERROR_CHARS` | `2000` | Maximum length of a single error message |
 | `MCP_MAX_CONCURRENT_TASKS` | `4` | Maximum number of MCP tasks processed concurrently |
+| `MCP_TRANSPORT` | `stdio` | MCP transport; set to `http` to listen on a network port for LAN clients |
+| `MCP_SERVER_HOST` | `127.0.0.1` | MCP listening address in HTTP mode (only when `MCP_TRANSPORT=http`) |
+| `MCP_SERVER_PORT` | `9000` | MCP listening port in HTTP mode (only when `MCP_TRANSPORT=http`) |
 | `MCP_AUDIO_RETENTION_SECONDS` | `86400` | Audio retention period, 24 hours by default |
 | `MCP_MAX_AUDIO_STORAGE_BYTES` | `1 GB` | Maximum total size of the audio directory |
 | `MCP_LOG_LEVEL` | `INFO` | Log level |
@@ -225,7 +281,7 @@ The SQLite table is created automatically when the service starts. Audio files a
 ## 8. Security Recommendations
 
 1. Do not commit `mcp_config.json`, API Keys, or generated audio files to a public repository.
-2. The Web service listens on all network interfaces by default. Use a firewall or reverse proxy to restrict access when enabling LAN access.
+2. The Web service binds to localhost (`127.0.0.1`) by default. To enable LAN or public access, explicitly set `MCP_WEB_HOST=0.0.0.0` and also configure `MCP_WEB_TOKEN`, a firewall, or a reverse proxy to restrict access.
 3. Do not expose the unauthenticated Web port directly to the public Internet.
 4. Use a dedicated, low-privilege API Key in production and rotate it regularly.
 5. If file logging is enabled, restrict access to the log files. Logs should not contain API Keys or audio content.

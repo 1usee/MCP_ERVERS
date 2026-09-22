@@ -36,6 +36,12 @@ MAX_AUDIO_STORAGE_BYTES = int(
     os.getenv("MCP_MAX_AUDIO_STORAGE_BYTES", str(1024 * 1024 * 1024))
 )
 MAX_CONCURRENT_TASKS = int(os.getenv("MCP_MAX_CONCURRENT_TASKS", "4"))
+# MCP 服务的网络监听参数，仅在 transport="http" 时生效。
+# 默认只监听本机：局域网部署时应通过反向代理或防火墙限制来源，
+# 而不是直接把无鉴权的端口暴露到整个网段。
+MCP_SERVER_HOST = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
+MCP_SERVER_PORT = int(os.getenv("MCP_SERVER_PORT", "9000"))
+MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "stdio").strip().lower()
 task_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 audio_checker = safe_Check()
 database = None
@@ -301,7 +307,24 @@ def get_service_config() -> dict:
 
 
 if __name__ == "__main__":
-    # 直接运行本文件时启动 MCP 服务；通常使用 stdio 与 MCP 客户端通信。
-    mcp.run()
+    # 默认使用 stdio：由 MCP 客户端在同一台机器上启动本进程，天然受本地环境影响。
+    # 设为 MCP_TRANSPORT=http 后，服务改为监听网络端口（默认 127.0.0.1:9000），
+    # 供局域网内其他机器上的 MCP 客户端连接。
+    #
+    # 注意：http 传输不提供任何身份校验，任何能访问该端口的客户端都可以调用工具。
+    # 因此请勿把该端口直接暴露到整个网段或公网，应配合防火墙 / 反向代理限制来源。
+    if MCP_TRANSPORT == "http":
+        logger.info(
+            "MCP server starting with http transport on %s:%s",
+            MCP_SERVER_HOST,
+            MCP_SERVER_PORT,
+        )
+        mcp.run(
+            transport="http",
+            host=MCP_SERVER_HOST,
+            port=MCP_SERVER_PORT,
+        )
+    else:
+        mcp.run()
 
 

@@ -71,7 +71,7 @@ sudo apt install python3-venv
 .venv/bin/python BACK_End/MCP_SERVER.py
 ```
 
-手动启动时建议在项目根目录执行，并设置 `PYTHONPATH` 为项目根目录。启动 MCP 服务后，它通常通过 **stdio** 与 MCP 客户端通信，不会单独提供浏览器页面。
+手动启动时建议在项目根目录执行，并设置 `PYTHONPATH` 为项目根目录。MCP 服务**默认通过 stdio** 与同机的 MCP 客户端通信，不监听端口，也不提供浏览器页面；如需供局域网内其他机器调用，可切换为 HTTP 传输（见下方「MCP 客户端配置示例」）。
 
 ## 三、首次配置
 
@@ -134,6 +134,8 @@ MCP 服务入口为 `BACK_End/MCP_SERVER.py`，提供以下工具：
 
 ### MCP 客户端配置示例
 
+#### 方式一：stdio（默认，MCP 服务与客户端在同一台机器）
+
 Windows 客户端配置示例：
 
 ```json
@@ -160,6 +162,57 @@ Linux/macOS 客户端配置示例：
 }
 ```
 
+此方式由客户端亲自启动 MCP 进程，两者通过标准输入输出通信。
+
+#### 方式二：HTTP（跨机器，MCP 服务部署在局域网服务器上）
+
+如果你的 MCP 服务运行在局域网内另一台服务器上，先在该服务器上以 HTTP 传输启动：
+
+```bash
+# Linux/macOS —— 在服务器上执行
+MCP_TRANSPORT=http \
+MCP_SERVER_HOST=0.0.0.0 \
+MCP_SERVER_PORT=9000 \
+MCP_AUDIO_DIR=/var/lib/mcp-audio \
+.venv/bin/python BACK_End/MCP_SERVER.py
+```
+
+```powershell
+# Windows —— 在服务器上执行
+$env:MCP_TRANSPORT = "http"
+$env:MCP_SERVER_HOST = "0.0.0.0"
+$env:MCP_SERVER_PORT = "9000"
+$env:MCP_AUDIO_DIR = "D:\MCPAudio"
+.venv\Scripts\python.exe BACK_End\MCP_SERVER.py
+```
+
+然后在客户端配置中改填 URL：
+
+```json
+{
+  "mcpServers": {
+    "tts-mcp": {
+      "url": "http://192.168.1.50:9000/mcp"
+    }
+  }
+}
+```
+
+说明：
+
+- 端点路径固定为 `/mcp`，不要省略。
+- 端口默认 `9000`，**不要与 Web 工作台的 `8000` 混用**，两者是两个独立服务。
+- 跨机器部署时建议显式设置 `MCP_AUDIO_DIR` 为绝对路径，避免音频文件写入预期之外的位置。
+- 局域网中其他机器能否访问，还取决于服务器防火墙与该端口放行情况。
+
+> **⚠️ 安全警告：HTTP 传输不提供任何身份校验。** 任何能访问该端口的机器都可以调用本服务的全部工具，并消耗你配置的 API Key 额度。因此：
+>
+> - 不要把 `MCP_SERVER_HOST=0.0.0.0` 的端口直接暴露到公网；
+> - 在局域网内也应通过防火墙限制来源 IP，或使用带 IP 白名单 / 访问控制的反向代理；
+> - 建议为该服务使用专用的低权限 API Key 并设置消费限额。
+>
+> 若只需自己使用，更安全的做法是保持默认的 `127.0.0.1` 并借助 SSH 端口转发访问。
+
 启动 MCP 客户端前，需要先配置 API Key。可以在 Web 设置页添加，也可以通过环境变量提供初始 Key：
 
 ```powershell
@@ -182,7 +235,7 @@ export DASHSCOPE_API_KEY="你的 API Key"
 | `DASHSCOPE_AUDIO_VOICE` | `Cherry` | 生成语音音色 |
 | `DASHSCOPE_REGION` | `cn-beijing` | 服务区域标识 |
 | `MCP_CONFIG_FILE` | 项目根目录 `mcp_config.json` | Web 与 MCP 共用的配置文件路径 |
-| `MCP_WEB_HOST` | `0.0.0.0` | Web 监听地址 |
+| `MCP_WEB_HOST` | `127.0.0.1` | Web 监听地址（默认仅本机，局域网访问需显式设为 `0.0.0.0`） |
 | `MCP_WEB_PORT` | `8000` | Web 监听端口 |
 | `MCP_AUDIO_DIR` | `audio_files` | 输入、输出音频保存目录 |
 | `MCP_DATABASE` | `audio_tasks.db` | SQLite 任务数据库路径 |
@@ -192,6 +245,9 @@ export DASHSCOPE_API_KEY="你的 API Key"
 | `MCP_MAX_RESPONSE_BYTES` | `50 MB` | Qwen 正常响应最大大小 |
 | `MCP_MAX_ERROR_CHARS` | `2000` | 单条错误信息最大长度 |
 | `MCP_MAX_CONCURRENT_TASKS` | `4` | MCP 同时处理的任务数 |
+| `MCP_TRANSPORT` | `stdio` | MCP 传输方式；设为 `http` 后监听网络端口，供局域网客户端连接 |
+| `MCP_SERVER_HOST` | `127.0.0.1` | MCP HTTP 模式的监听地址（仅 `MCP_TRANSPORT=http` 时生效） |
+| `MCP_SERVER_PORT` | `9000` | MCP HTTP 模式的监听端口（仅 `MCP_TRANSPORT=http` 时生效） |
 | `MCP_AUDIO_RETENTION_SECONDS` | `86400` | 音频文件保留时间，默认 24 小时 |
 | `MCP_MAX_AUDIO_STORAGE_BYTES` | `1 GB` | 音频目录最大总容量 |
 | `MCP_LOG_LEVEL` | `INFO` | 日志等级 |
@@ -222,7 +278,7 @@ $env:MCP_AUDIO_DIR = "D:\MCPAudio"
 ## 八、安全建议
 
 1. 不要把 `mcp_config.json`、API Key 或生成的音频文件提交到公共仓库。
-2. Web 服务默认监听所有网卡，局域网访问时请使用防火墙或反向代理限制来源。
+2. Web 服务默认只监听本机（`127.0.0.1`）。如需局域网或公网访问，应显式设置 `MCP_WEB_HOST=0.0.0.0`，并同时配置 `MCP_WEB_TOKEN`、防火墙或反向代理来限制来源。
 3. 不要把未加认证的 Web 端口直接暴露到公网。
 4. 生产环境应使用专用的低权限 API Key，并定期轮换。
 5. 若日志写入文件，请限制日志文件访问权限；日志不应记录 API Key 或音频正文。
