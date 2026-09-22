@@ -13,7 +13,10 @@
           <p class="eyebrow">本地 MCP 工作台</p>
           <h1>音频生成与语音交互</h1>
         </div>
-        <button id="settingsBtn" class="icon-button" type="button">API 设置</button>
+        <div class="topbar-actions">
+          <button id="themeBtn" class="icon-button" type="button" aria-label="切换主题">跟随系统</button>
+          <button id="settingsBtn" class="icon-button" type="button">API 设置</button>
+        </div>
       </header>
 
       <main>
@@ -55,6 +58,9 @@
                   <span class="result-label">生成音频文件</span>
                   <span id="audioResultStatus" class="audio-result-status">等待生成</span>
                 </div>
+                <div id="audioWave" class="audio-wave hidden" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span><span></span>
+                </div>
                 <div id="audioFileInfo" class="audio-file-info hidden">
                   <div class="audio-file-detail">
                     <span class="detail-label">文件名称</span>
@@ -80,19 +86,51 @@
             <button id="backBtn" class="back-button" type="button">← 返回工作台</button>
             <div>
               <p class="eyebrow">连接管理</p>
-              <h2>API 设置</h2>
+              <h2>API 设置与连接检查</h2>
             </div>
           </div>
 
           <div class="settings-layout">
-            <section class="card">
-              <h2>模型配置</h2>
+            <section class="card service-card">
+              <h2>服务地址</h2>
+              <label class="field">
+                <span>Base URL</span>
+                <input id="baseUrlInput" type="url" placeholder="https://dashscope-intl.aliyuncs.com/compatible-mode/v1" />
+              </label>
+              <div class="actions">
+                <button id="saveBaseUrlBtn" class="secondary" type="button">保存 Base URL</button>
+              </div>
+            </section>
+
+            <section class="card api-card">
+              <h2>API Key 管理</h2>
+              <p class="helper-text">添加多个 Key，并选择当前请求使用的 Key。</p>
+              <div class="api-add-row">
+                <input id="apiKeyInput" type="password" placeholder="请输入 DASHSCOPE_API_KEY" />
+                <button id="addApiBtn" class="primary" type="button">添加</button>
+              </div>
+              <div id="apiList" class="api-list" aria-live="polite"></div>
+              <div id="apiStatus" class="status" aria-live="polite"></div>
+            </section>
+
+            <section class="card diagnostics-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">连接状态</p>
+                  <h2>服务自检</h2>
+                </div>
+                <button id="diagnosticsBtn" class="secondary" type="button">开始检查</button>
+              </div>
+              <div id="diagnosticsList" class="diagnostics-list" aria-live="polite"></div>
+            </section>
+
+            <section class="card model-card">
+              <h2>模型选择</h2>
               <div class="field-row two-col">
                 <label class="field">
                   <span>模型名称</span>
                   <select id="modelSelect">
-                    <option value="" selected disabled>请先获取模型名称</option>
-                    <option value="custom">自定义模型</option>
+                    <option value="" selected disabled>正在加载模型名称</option>
                   </select>
                 </label>
 
@@ -102,26 +140,8 @@
                 </label>
               </div>
               <div class="actions">
-                <button id="fetchModelsBtn" class="secondary" type="button">获取模型名称</button>
+                <button id="fetchModelsBtn" class="secondary" type="button">刷新列表</button>
               </div>
-            </section>
-
-            <section class="card api-card">
-              <h2>API Key</h2>
-              <p class="helper-text">添加多个 Key，并选择当前请求使用的 Key。</p>
-              <label class="field">
-                <span>Base URL</span>
-                <input id="baseUrlInput" type="url" placeholder="https://dashscope-intl.aliyuncs.com/compatible-mode/v1" />
-              </label>
-              <div class="actions">
-                <button id="saveBaseUrlBtn" class="secondary" type="button">保存 Base URL</button>
-              </div>
-              <div class="api-add-row">
-                <input id="apiKeyInput" type="password" placeholder="请输入 DASHSCOPE_API_KEY" />
-                <button id="addApiBtn" class="primary" type="button">添加</button>
-              </div>
-              <div id="apiList" class="api-list" aria-live="polite"></div>
-              <div id="apiStatus" class="status" aria-live="polite"></div>
             </section>
           </div>
         </section>

@@ -80,10 +80,32 @@ class WebHandler(SimpleHTTPRequestHandler):
                 **public_config(current),
             })
             return
+        if self.path == "/api/health/storage":
+            self._check_storage()
+            return
         if self.path == "/api/models":
             self._get_models()
             return
         return super().do_GET()
+
+    def _check_storage(self):
+        probe = UPLOAD_DIR / f".probe-{uuid.uuid4().hex}"
+        try:
+            UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+            probe.write_bytes(b"ok")
+            writable = probe.exists()
+            probe.unlink(missing_ok=True)
+            self._send_json({"writable": writable})
+        except OSError as exc:
+            # 清理探针文件；即使清理本身失败，也不应影响错误上报。
+            try:
+                probe.unlink(missing_ok=True)
+            except OSError:
+                pass
+            # 只取 strerror（如 "Permission denied"），不要 str(exc)——
+            # 后者会带上探针文件的绝对路径，泄露服务器目录结构。
+            reason = exc.strerror or exc.__class__.__name__
+            self._send_json({"writable": False, "error": f"音频目录不可写：{reason}"}, 500)
 
     def _get_models(self):
         try:

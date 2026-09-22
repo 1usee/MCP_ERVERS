@@ -24,7 +24,13 @@ const audioFileInfo = document.getElementById('audioFileInfo');
 const audioFileName = document.getElementById('audioFileName');
 const audioCreatedAt = document.getElementById('audioCreatedAt');
 const audioFileSize = document.getElementById('audioFileSize');
+const themeBtn = document.getElementById('themeBtn');
+const audioWave = document.getElementById('audioWave');
+const diagnosticsBtn = document.getElementById('diagnosticsBtn');
+const diagnosticsList = document.getElementById('diagnosticsList');
 const webToken = localStorage.getItem('mcpWebToken') || '';
+const fallbackModels = ['qwen-omni-turbo', 'qwen-omni-flash', 'qwen-omni-audio'];
+const themeModes = ['auto', 'light', 'dark'];
 let apiKeys = [];
 let activeApiKeyId = null;
 let audioObjectUrl = '';
@@ -39,6 +45,35 @@ function getSelectedModel() {
     return customModel.value.trim();
   }
   return modelSelect.value.trim();
+}
+
+function authHeaders(json = false) {
+  const headers = json ? { 'Content-Type': 'application/json' } : {};
+  if (webToken) headers['X-MCP-Token'] = webToken;
+  return headers;
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: { ...authHeaders(Boolean(options.body)), ...(options.headers || {}) }
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `请求失败（HTTP ${response.status}）`);
+  return result;
+}
+
+function applyTheme(mode) {
+  document.documentElement.dataset.theme = mode;
+  themeBtn.textContent = { auto: '跟随系统', light: '浅色', dark: '深色' }[mode];
+  themeBtn.title = `当前主题：${themeBtn.textContent}，点击切换`;
+}
+
+function cycleTheme() {
+  const current = document.documentElement.dataset.theme || 'auto';
+  const next = themeModes[(themeModes.indexOf(current) + 1) % themeModes.length];
+  localStorage.setItem('mcpTheme', next);
+  applyTheme(next);
 }
 
 function renderApiList() {
@@ -103,15 +138,10 @@ async function removeApiKey(apiId) {
 }
 
 async function updateConfig(url, options = {}) {
-  const headers = options.body ? { 'Content-Type': 'application/json' } : {};
-  if (webToken) headers['X-MCP-Token'] = webToken;
-  const response = await fetch(url, {
+  const result = await fetchJson(url, {
     method: options.method || 'GET',
-    headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || '配置更新失败');
   if (result.api_keys) {
     apiKeys = result.api_keys;
     const active = apiKeys.find((item) => item.active);
@@ -127,15 +157,31 @@ async function loadConfig() {
 }
 
 function populateModels(models) {
-  const customOption = modelSelect.querySelector('option[value="custom"]');
+  const previous = getSelectedModel();
   modelSelect.replaceChildren(new Option('请先获取模型名称', '', true, true));
   modelSelect.options[0].disabled = true;
   models.forEach((model) => {
     modelSelect.add(new Option(model, model));
   });
-  modelSelect.add(customOption);
-  modelSelect.value = '';
+  modelSelect.add(new Option('自定义模型', 'custom'));
+  modelSelect.value = models.includes(previous) ? previous : '';
   toggleCustomModel();
+}
+
+async function loadModelOptions() {
+  let models = fallbackModels;
+  window.__modelCache = null;
+  try {
+    const result = await fetchJson('/api/models');
+    if (Array.isArray(result.models) && result.models.length) {
+      models = result.models;
+      window.__modelCache = result.models;
+    }
+  } catch (error) {
+    apiStatus.textContent = '未能获取线上模型，已使用内置列表。';
+    apiStatus.className = 'status';
+  }
+  populateModels(models);
 }
 
 async function fetchModels() {
@@ -143,10 +189,7 @@ async function fetchModels() {
   apiStatus.textContent = '正在获取模型名称…';
   apiStatus.className = 'status';
   try {
-    const headers = webToken ? { 'X-MCP-Token': webToken } : {};
-    const response = await fetch('/api/models', { headers });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || '获取模型名称失败');
+    const result = await fetchJson('/api/models');
     if (!Array.isArray(result.models) || !result.models.length) {
       throw new Error('模型接口未返回模型名称');
     }
@@ -162,10 +205,21 @@ async function fetchModels() {
 }
 
 async function saveBaseUrl() {
+  const value = baseUrlInput.value.trim();
+  try {
+    const parsed = new URL(value);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.search || parsed.hash) {
+      throw new Error('Base URL 必须是没有查询参数的 HTTP(S) 地址。');
+    }
+  } catch (error) {
+    apiStatus.textContent = error.message || 'Base URL 格式不合法。';
+    apiStatus.className = 'status error';
+    return;
+  }
   try {
     await updateConfig('/api/config', {
       method: 'POST',
-      body: { base_url: baseUrlInput.value.trim() }
+      body: { base_url: value }
     });
     apiStatus.textContent = 'Base URL 保存成功。';
     apiStatus.className = 'status success';
@@ -261,6 +315,87 @@ function clearAudioResult() {
   audioFileSize.textContent = '-';
 }
 
+function setAudioLoading(loading) {
+  audioWave.classList.toggle('hidden', !loading);
+  audioResultStatus.textContent = loading ? '生成中' : '等待生成';
+}
+
+const checks = [
+  { id: 'web', label: 'Web 服务在线', run: checkWebService },
+  { id: 'key', label: 'API Key 已配置', run: checkApiKey },
+  { id: 'reach', label: '服务端连通 Qwen', run: checkQwenReachable },
+  { id: 'models', label: '模型列表可获取', run: checkModelList },
+  { id: 'storage', label: '音频目录可写', run: checkStorage }
+];
+
+function renderDiagnostics() {
+  diagnosticsList.replaceChildren(...checks.map((check) => {
+    const row = document.createElement('div');
+    row.className = 'diagnostic-item';
+    row.id = `check-${check.id}`;
+    row.innerHTML = `<span class="diagnostic-icon">○</span><strong>${check.label}</strong><span class="diagnostic-detail">等待检查</span><time>--</time>`;
+    return row;
+  }));
+}
+
+function setCheckState(id, state, detail = '检查中', elapsed = 0) {
+  const row = document.getElementById(`check-${id}`);
+  if (!row) return;
+  row.dataset.state = state;
+  row.querySelector('.diagnostic-icon').textContent = { running: '◌', ok: '✓', warn: '!', fail: '×' }[state] || '○';
+  row.querySelector('.diagnostic-detail').textContent = detail;
+  row.querySelector('time').textContent = state === 'running' ? '...' : `${Math.round(elapsed)} ms`;
+}
+
+async function checkWebService() {
+  await fetchJson('/api/config');
+  return '服务已响应';
+}
+
+async function checkApiKey() {
+  const data = await fetchJson('/api/config');
+  if (!data.api_keys?.length) throw new Error('尚未添加任何 Key');
+  const active = data.api_keys.find((key) => key.active);
+  if (!active) throw new Error('未选中活动 Key');
+  return `当前使用 ${active.masked}`;
+}
+
+async function checkQwenReachable() {
+  const data = await fetchJson('/api/models');
+  if (!data.models?.length) throw new Error('未返回任何模型');
+  window.__modelCache = data.models;
+  return `上游可达，共 ${data.models.length} 个模型`;
+}
+
+async function checkModelList() {
+  const models = window.__modelCache || (await fetchJson('/api/models')).models;
+  if (!models?.length) throw new Error('未返回任何模型');
+  const current = getSelectedModel();
+  if (current && !models.includes(current)) return `当前模型 ${current} 不在列表中`;
+  return current ? `当前模型 ${current} 可用` : '模型列表可获取';
+}
+
+async function checkStorage() {
+  const data = await fetchJson('/api/health/storage');
+  if (!data.writable) throw new Error(data.error || '音频目录不可写');
+  return '音频目录可写';
+}
+
+async function runDiagnostics() {
+  diagnosticsBtn.disabled = true;
+  for (const check of checks) {
+    setCheckState(check.id, 'running');
+    const started = performance.now();
+    try {
+      const detail = await check.run();
+      setCheckState(check.id, detail.includes('不在列表') ? 'warn' : 'ok', detail, performance.now() - started);
+    } catch (error) {
+      setCheckState(check.id, 'fail', error.message, performance.now() - started);
+    }
+  }
+  diagnosticsBtn.disabled = false;
+}
+
 async function callMcpService(payload) {
   const headers = { 'Content-Type': 'application/json' };
   if (webToken) headers['X-MCP-Token'] = webToken;
@@ -314,6 +449,7 @@ async function handleSubmit(event) {
 
   submitBtn.disabled = true;
   setStatus('正在处理音频，请稍候…');
+  setAudioLoading(true);
 
   try {
     const audioBase64 = await toBase64(file);
@@ -348,6 +484,7 @@ async function handleSubmit(event) {
     console.error(error);
     setStatus(error.message || '请求失败，请检查参数或服务状态。', 'error');
   } finally {
+    setAudioLoading(false);
     submitBtn.disabled = false;
   }
 }
@@ -397,8 +534,13 @@ apiList.addEventListener('click', (event) => {
 });
 
 saveBaseUrlBtn.addEventListener('click', saveBaseUrl);
+themeBtn.addEventListener('click', cycleTheme);
+diagnosticsBtn.addEventListener('click', runDiagnostics);
+renderDiagnostics();
+applyTheme(localStorage.getItem('mcpTheme') || 'auto');
 toggleCustomModel();
 loadConfig().catch((error) => {
   apiStatus.textContent = error.message || '无法读取服务器配置。';
   apiStatus.className = 'status error';
 });
+loadModelOptions();
