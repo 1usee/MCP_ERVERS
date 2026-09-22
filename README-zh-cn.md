@@ -202,7 +202,7 @@ $env:MCP_AUDIO_DIR = "D:\MCPAudio"
 
 - 端点路径固定为 `/mcp`，不要省略。
 - 端口默认 `9000`，**不要与 Web 工作台的 `8000` 混用**，两者是两个独立服务。
-- 跨机器部署时建议显式设置 `MCP_AUDIO_DIR` 为绝对路径，避免音频文件写入预期之外的位置。
+- 跨机器部署时建议显式设置 `MCP_AUDIO_DIR` 为绝对路径，便于把音频集中到独立的数据目录。
 - 局域网中其他机器能否访问，还取决于服务器防火墙与该端口放行情况。
 
 > **⚠️ 安全警告：HTTP 传输不提供任何身份校验。** 任何能访问该端口的机器都可以调用本服务的全部工具，并消耗你配置的 API Key 额度。因此：
@@ -237,8 +237,8 @@ export DASHSCOPE_API_KEY="你的 API Key"
 | `MCP_CONFIG_FILE` | 项目根目录 `mcp_config.json` | Web 与 MCP 共用的配置文件路径 |
 | `MCP_WEB_HOST` | `127.0.0.1` | Web 监听地址（默认仅本机，局域网访问需显式设为 `0.0.0.0`） |
 | `MCP_WEB_PORT` | `8000` | Web 监听端口 |
-| `MCP_AUDIO_DIR` | `audio_files` | 输入、输出音频保存目录 |
-| `MCP_DATABASE` | `audio_tasks.db` | SQLite 任务数据库路径 |
+| `MCP_AUDIO_DIR` | 项目根目录下的 `audio_files` | 输入、输出音频保存目录；未设置时按项目根目录解析 |
+| `MCP_DATABASE` | 项目根目录下的 `audio_tasks.db` | SQLite 任务数据库路径；未设置时按项目根目录解析 |
 | `MCP_MAX_AUDIO_BYTES` | `25 MB` | 单个输入或输出音频的最大字节数 |
 | `MCP_MAX_PROMPT_CHARS` | `4000` | MCP 提示词最大长度 |
 | `MCP_MAX_TEXT_CHARS` | `20000` | 保存和返回的模型文字最大长度 |

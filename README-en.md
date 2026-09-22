@@ -205,7 +205,7 @@ Notes:
 
 - The endpoint path is always `/mcp` — do not omit it.
 - The default port is `9000`; **do not reuse `8000`**, which belongs to the Web Workbench (a separate service).
-- For cross-machine deployment, set `MCP_AUDIO_DIR` to an absolute path so audio files land where you expect.
+- For cross-machine deployment, set `MCP_AUDIO_DIR` to an absolute path so you can keep audio in a dedicated data directory.
 - Whether other machines on the LAN can reach it also depends on the server firewall and whether the port is allowed.
 
 > **⚠️ Security warning: the HTTP transport performs no authentication whatsoever.** Any machine that can reach the port can call every tool in this service and consume your configured API Key quota. Therefore:
@@ -240,8 +240,8 @@ All configuration options are set through environment variables. Defaults are us
 | `MCP_CONFIG_FILE` | `mcp_config.json` in the project root | Shared configuration file used by Web and MCP services |
 | `MCP_WEB_HOST` | `127.0.0.1` | Web listening address (local-only by default; set to `0.0.0.0` explicitly for LAN access) |
 | `MCP_WEB_PORT` | `8000` | Web listening port |
-| `MCP_AUDIO_DIR` | `audio_files` | Directory for input and output audio |
-| `MCP_DATABASE` | `audio_tasks.db` | SQLite task database path |
+| `MCP_AUDIO_DIR` | `audio_files` under the project root | Directory for input and output audio; resolved against the project root when unset |
+| `MCP_DATABASE` | `audio_tasks.db` under the project root | SQLite task database path; resolved against the project root when unset |
 | `MCP_MAX_AUDIO_BYTES` | `25 MB` | Maximum size of one input or output audio file in bytes |
 | `MCP_MAX_PROMPT_CHARS` | `4000` | Maximum MCP prompt length |
 | `MCP_MAX_TEXT_CHARS` | `20000` | Maximum length of model text to store and return |

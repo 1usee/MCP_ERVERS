@@ -20,9 +20,12 @@ from BACK_End.safe_Part import safe_Check
 
 # 创建 MCP 服务器实例，客户端可以通过这个实例发现并调用工具。
 mcp = FastMCP("TTS_mcp")
+# 项目根目录。与 Front_End/server.py、runtime_config.py 使用同一套解析方式，
+# 保证 Web 与 MCP 两个服务指向同一个音频目录和数据库，不受启动时工作目录影响。
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # 音频文件保存目录，可通过环境变量 MCP_AUDIO_DIR 自定义。
-UPLOAD_DIR = Path(os.getenv("MCP_AUDIO_DIR", "audio_files"))
-DATABASE_PATH = Path(os.getenv("MCP_DATABASE", "audio_tasks.db"))
+UPLOAD_DIR = Path(os.getenv("MCP_AUDIO_DIR", str(PROJECT_ROOT / "audio_files")))
+DATABASE_PATH = Path(os.getenv("MCP_DATABASE", str(PROJECT_ROOT / "audio_tasks.db")))
 MAX_PROMPT_CHARS = int(os.getenv("MCP_MAX_PROMPT_CHARS", "4000"))
 MAX_RESPONSE_BYTES = int(
     os.getenv("MCP_MAX_RESPONSE_BYTES", str(50 * 1024 * 1024))
